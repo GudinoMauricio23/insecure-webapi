@@ -71,7 +71,11 @@ $f3->route('POST /Registro',
 		// TODO validar correo en json
 		// TODO Control de error de la $DB
 		try {
-			$R = $db->exec('insert into Usuario values(null,"'.$jsB['uname'].'","'.$jsB['email'].'",md5("'.$jsB['password'].'"))');
+			$R = $db->prepare('INSERT INTO Usuario (uname, email, password) VALUES (?, ?, ?)');
+			$R->bindParam(1, $jsB['uname']);
+			$R->bindParam(2, $jsB['email']);
+			$R->bindParam(3, md5($jsB['password']));
+			$R->execute();
 		} catch (Exception $e) {
 			echo '{"R":-2}';
 			return;
@@ -118,7 +122,10 @@ $f3->route('POST /Login',
 		// TODO validar correo en json
 		// TODO Control de error de la $DB
 		try {
-			$R = $db->exec('Select id from  Usuario where uname ="'.$jsB['uname'].'" and password = md5("'.$jsB['password'].'");');
+			$R = $db->prepare('SELECT id FROM Usuario WHERE uname = :uname AND password = MD5(:password)');
+			$R->bindValue(':uname', $jsB['uname']);
+			$R->bindValue(':password', $jsB['password']);
+			$R->execute();
 		} catch (Exception $e) {
 			echo '{"R":-2}';
 			return;
@@ -130,7 +137,11 @@ $f3->route('POST /Login',
 		$T = getToken();
 		//file_put_contents('/tmp/log','insert into AccesoToken values('.$R[0].',"'.$T.'",now())');
 		$db->exec('Delete from AccesoToken where id_Usuario = "'.$R[0]['id'].'";');
-		$R = $db->exec('insert into AccesoToken values('.$R[0]['id'].',"'.$T.'",now())');
+		$query = 'INSERT INTO AccesoToken (id_Usuario, token, fecha) VALUES (:id, :token, NOW())';
+		$R = $db->prepare($query);
+		$R->bindValue(':id', $R[0]['id']);
+		$R->bindValue(':token', $T);
+		$R->execute();
 		echo "{\"R\":0,\"D\":\"".$T."\"}";
 	}
 );
@@ -180,7 +191,10 @@ $f3->route('POST /Imagen',
 		$TKN = $jsB['token'];
 		
 		try {
-			$R = $db->exec('select id_Usuario from AccesoToken where token = "'.$TKN.'"');
+			$query = 'SELECT id_Usuario FROM AccesoToken WHERE token = :token';
+			$R = $db->prepare($query);
+			$R->bindValue(':token', $TKN);
+			$R->execute();
 		} catch (Exception $e) {
 			echo '{"R":-2}';
 			return;
@@ -191,10 +205,26 @@ $f3->route('POST /Imagen',
 		////////////////////////////////////////////////////////
 		////////////////////////////////////////////////////////
 		// Guardar info del archivo en la base de datos
-		$R = $db->exec('insert into Imagen values(null,"'.$jsB['name'].'","img/",'.$id_Usuario.');');
-		$R = $db->exec('select max(id) as idImagen from Imagen where id_Usuario = '.$id_Usuario);
+		$query = 'INSERT INTO Imagen (name, ruta, id_Usuario) VALUES (:name, "img/", :idUsuario)';
+		$R = $db->prepare($query);
+		$R->bindValue(':name', $jsB['name']);
+		$R->bindValue(':idUsuario', $id_Usuario);
+		$R->execute();
+		////////////////////////////////////////////////////////////////////////////////////////////////////
+		$query = 'SELECT MAX(id) AS idImagen FROM Imagen WHERE id_Usuario = :idUsuario';
+		$R = $db->prepare($query);
+		$R->bindValue(':idUsuario', $id_Usuario);
+		$R->execute();
+		/////////////////////////////////////////////////////////////////////////////////////////////////////
 		$idImagen = $R[0]['idImagen'];
-		$R = $db->exec('update Imagen set ruta = "img/'.$idImagen.'.'.$jsB['ext'].'" where id = '.$idImagen);
+		// Preparar la consulta
+		$query = 'UPDATE Imagen SET ruta = :ruta WHERE id = :idImagen';
+		$R = $db->prepare($query);
+		$rutaCompleta = 'img/' . $idImagen . '.' . $jsB['ext'];
+		$R->bindValue(':ruta', $rutaCompleta);
+		$R->bindValue(':idImagen', $idImagen);
+		$R->execute();
+
 		// Mover archivo a su nueva locacion
 		rename('tmp/'.$id_Usuario,'img/'.$idImagen.'.'.$jsB['ext']);
 		echo "{\"R\":0,\"D\":".$idImagen."}";
@@ -236,7 +266,11 @@ $f3->route('POST /Descargar',
 		$TKN = $jsB['token'];
 		$idImagen = $jsB['id'];
 		try {
-			$R = $db->exec('select id_Usuario from AccesoToken where token = "'.$TKN.'"');
+			$query = 'SELECT id_Usuario FROM AccesoToken WHERE token = :token';
+			$R = $db->prepare($query);
+			$R->bindValue(':token', $TKN);
+			$R->execute();
+
 		} catch (Exception $e) {
 			echo '{"R":-2}';
 			return;
@@ -244,7 +278,12 @@ $f3->route('POST /Descargar',
 		
 		// Buscar imagen y enviarla
 		try {
-			$R = $db->exec('Select name,ruta from  Imagen where id = '.$idImagen);
+			
+			$query = 'SELECT name, ruta FROM Imagen WHERE id = :idImagen';
+			$R = $db->prepare($query);
+			$R->bindValue(':idImagen', $idImagen);
+			$R->execute();
+
 		}catch (Exception $e) {
 			echo '{"R":-3}';
 			return;
