@@ -1,10 +1,12 @@
 <?php 
-function loadDatabaseSettings($pathjs){
-	$string = file_get_contents($pathjs);
-	$json_a = json_decode($string, true);
-	return $json_a;
+function loadDatabaseSettings($path){
+    $string = file_get_contents($path);
+    $json_a = json_decode($string, true);
+    return $json_a;
 }
 
+// Utilizando la nueva ruta del archivo db.json
+$dbcnf = loadDatabaseSettings('../info/db.json');
 function getToken(){
 	//creamos el objeto fecha y obtuvimos la cantidad de segundos desde el 1ª enero 1970
 	$fecha = date_create();
