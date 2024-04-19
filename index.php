@@ -74,7 +74,8 @@ $f3->route('POST /Registro',
 			$R = $db->prepare('INSERT INTO Usuario (uname, email, password) VALUES (?, ?, ?)');
 			$R->bindParam(1, $jsB['uname']);
 			$R->bindParam(2, $jsB['email']);
-			$R->bindParam(3, md5($jsB['password']));
+			$hashedPassword = password_hash($jsB['password'], PASSWORD_DEFAULT);
+			$R->bindParam(3, $hashedPassword);
 			$R->execute();
 		} catch (Exception $e) {
 			echo '{"R":-2}';
@@ -122,29 +123,37 @@ $f3->route('POST /Login',
 		// TODO validar correo en json
 		// TODO Control de error de la $DB
 		try {
-			$R = $db->prepare('SELECT id FROM Usuario WHERE uname = :uname AND password = MD5(:password)');
+			$R = $db->prepare('SELECT id, password FROM Usuario WHERE uname = :uname');
 			$R->bindValue(':uname', $jsB['uname']);
-			$R->bindValue(':password', $jsB['password']);
 			$R->execute();
 		} catch (Exception $e) {
 			echo '{"R":-2}';
 			return;
 		}
-		if (empty($R)){
+
+		if ($R->rowCount() == 0) {
 			echo '{"R":-3}';
 			return;
 		}
-		$T = getToken();
-		//file_put_contents('/tmp/log','insert into AccesoToken values('.$R[0].',"'.$T.'",now())');
-		$db->exec('Delete from AccesoToken where id_Usuario = "'.$R[0]['id'].'";');
-		$query = 'INSERT INTO AccesoToken (id_Usuario, token, fecha) VALUES (:id, :token, NOW())';
-		$R = $db->prepare($query);
-		$R->bindValue(':id', $R[0]['id']);
-		$R->bindValue(':token', $T);
-		$R->execute();
-		echo "{\"R\":0,\"D\":\"".$T."\"}";
-	}
-);
+		$userData = $R->fetch(PDO::FETCH_ASSOC);
+		$storedHash = $userData['password'];
+		if (password_verify($jsB['password'], $storedHash)) {
+			// La contraseña es correcta
+			// Generar un nuevo token de acceso y almacenarlo en la base de datos
+			$T = getToken();
+			$db->exec('Delete from AccesoToken where id_Usuario = "'.$userData['id'].'";');
+			$query = 'INSERT INTO AccesoToken (id_Usuario, token, fecha) VALUES (:id, :token, NOW())';
+			$R = $db->prepare($query);
+			$R->bindValue(':id', $userData['id']);
+			$R->bindValue(':token', $T);
+			$R->execute();
+			echo "{\"R\":0,\"D\":\"".$T."\"}";
+		} else {
+			// La contraseña es incorrecta
+			echo '{"R":-4}';
+			return;
+		}
+	});
 
 
 /*
