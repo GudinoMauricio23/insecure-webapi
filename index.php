@@ -53,7 +53,7 @@ $f3->route('GET /saludo/@nombre',
 
 $f3->route('POST /Registro',
 	function($f3) {
-		$dbcnf = loadDatabaseSettings('db.json');
+		$dbcnf = loadDatabaseSettings('../info/db.json');
 		$db=new DB\SQL(
 			'mysql:host=localhost;port='.$dbcnf['port'].';dbname='.$dbcnf['dbname'],
 			$dbcnf['user'],
@@ -80,6 +80,7 @@ $f3->route('POST /Registro',
 			$R->bindParam(3, $hashedPassword);
 			$R->execute();
 		} catch (Exception $e) {
+			error_log("Error: " . $e->getMessage()); 
 			echo '{"R":-2}';
 			return;
 		}
@@ -105,7 +106,7 @@ $f3->route('POST /Registro',
 
 $f3->route('POST /Login',
 	function($f3) {
-		$dbcnf = loadDatabaseSettings('db.json');
+		$dbcnf = loadDatabaseSettings('../info/db.json');
 		$db=new DB\SQL(
 			'mysql:host=localhost;port='.$dbcnf['port'].';dbname='.$dbcnf['dbname'],
 			$dbcnf['user'],
@@ -129,6 +130,7 @@ $f3->route('POST /Login',
 			$R->bindValue(':uname', $jsB['uname']);
 			$R->execute();
 		} catch (Exception $e) {
+			error_log("Error: " . $e->getMessage()); 
 			echo '{"R":-2}';
 			return;
 		}
@@ -152,6 +154,7 @@ $f3->route('POST /Login',
 			echo "{\"R\":0,\"D\":\"".$T."\"}";
 		} else {
 			// La contraseña es incorrecta
+			
 			echo '{"R":-4}';
 			return;
 		}
@@ -191,7 +194,7 @@ $f3->route('POST /Imagen',
 			return;
 		}
 		
-		$dbcnf = loadDatabaseSettings('db.json');
+		$dbcnf = loadDatabaseSettings('../info/db.json');
 		$db=new DB\SQL(
 			'mysql:host=localhost;port='.$dbcnf['port'].';dbname='.$dbcnf['dbname'],
 			$dbcnf['user'],
@@ -207,6 +210,7 @@ $f3->route('POST /Imagen',
 			$R->bindValue(':token', $TKN);
 			$R->execute();
 		} catch (Exception $e) {
+			error_log("Error: " . $e->getMessage()); 
 			echo '{"R":-2}';
 			return;
 		}
@@ -252,61 +256,97 @@ $f3->route('POST /Imagen',
  * Debe retornar un Token 
  * */
 
-
 $f3->route('POST /Descargar',
-	function($f3) {
-		$dbcnf = loadDatabaseSettings('db.json');
-		$db=new DB\SQL(
-			'mysql:host=localhost;port='.$dbcnf['port'].';dbname='.$dbcnf['dbname'],
-			$dbcnf['user'],
-			$dbcnf['password']
-		);
-		$db->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
-		/////// obtener el cuerpo de la peticion
-		$Cuerpo = $f3->get('BODY');
-		$jsB = json_decode($Cuerpo,true);
-		/////////////
-		$R = array_key_exists('token',$jsB) && array_key_exists('id',$jsB);
-		// TODO checar si estan vacio los elementos del json
-		if (!$R){
-			echo '{"R":-1}';
-			return;
-		}
-		// TODO validar correo en json
-		// Comprobar que el usuario sea valido
-		$TKN = $jsB['token'];
-		$idImagen = $jsB['id'];
-		try {
-			$query = 'SELECT id_Usuario FROM AccesoToken WHERE token = :token';
-			$R = $db->prepare($query);
-			$R->bindValue(':token', $TKN);
-			$R->execute();
-
-		} catch (Exception $e) {
-			echo '{"R":-2}';
-			return;
-		}
-		
-		// Buscar imagen y enviarla
-		try {
-			
-			$query = 'SELECT name, ruta FROM Imagen WHERE id = :idImagen';
-			$R = $db->prepare($query);
-			$R->bindValue(':idImagen', $idImagen);
-			$R->execute();
-
-		}catch (Exception $e) {
-			echo '{"R":-3}';
-			return;
-		}
-		$web = \Web::instance();
-		ob_start();
-		// send the file without any download dialog
-		$info = pathinfo($R[0]['ruta']);
-		$web->send($R[0]['ruta'],NULL,0,TRUE,$R[0]['name'].'.'.$info['extension']);
-		$out=ob_get_clean();
-		//echo "{\"R\":0,\"D\":\"".$T."\"}";
-	}
+ function($f3) {
+	 $dbcnf = loadDatabaseSettings('db.json');
+	 $db = new DB\SQL(
+		 'mysql:host=localhost;port='.$dbcnf['port'].';dbname='.$dbcnf['dbname'],
+		 $dbcnf['user'],
+		 $dbcnf['password']
+	 );
+	 $db->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+	 
+	 // Obtener el cuerpo de la petición
+	 $body = $f3->get('BODY');
+	 $requestData = json_decode($body, true);
+	 
+	 // Verificar que el token y el ID de la imagen estén presentes en la solicitud
+	 if (!isset($requestData['token']) || !isset($requestData['id'])) {
+		 echo '{"R":-1}';
+		 return;
+	 }
+	 
+	 // Obtener el token y el ID de la imagen desde la solicitud
+	 $token = $requestData['token'];
+	 $idImagen = $requestData['id'];
+	 
+	 // Verificar la validez del token y obtener el ID de usuario asociado
+	 try {
+		 $query = 'SELECT id_Usuario FROM AccesoToken WHERE token = :token';
+		 $stmt = $db->prepare($query);
+		 $stmt->bindParam(':token', $token);
+		 $stmt->execute();
+		 $result = $stmt->fetch(PDO::FETCH_ASSOC);
+		 
+		 if (!$result) {
+			 echo '{"R":-2}';
+			 return;
+		 }
+		 
+		 $idUsuario = $result['id_Usuario'];
+		 
+	 } catch (Exception $e) {
+		 error_log("Error: " . $e->getMessage()); 
+		 echo '{"R":-2}';
+		 return;
+	 }
+	 
+	 // Verificar si el usuario tiene permiso para descargar la imagen
+	 try {
+		 $query = 'SELECT id_Usuario FROM Imagen WHERE id = :idImagen';
+		 $stmt = $db->prepare($query);
+		 $stmt->bindParam(':idImagen', $idImagen);
+		 $stmt->execute();
+		 $result = $stmt->fetch(PDO::FETCH_ASSOC);
+		 
+		 if (!$result || $result['id_Usuario'] != $idUsuario) {
+			 echo '{"R":-3}';
+			 return;
+		 }
+		 
+	 } catch (Exception $e) {
+		 error_log("Error: " . $e->getMessage()); 
+		 echo '{"R":-3}';
+		 return;
+	 }
+	 
+	 // Obtener la ruta de la imagen desde la base de datos
+	 try {
+		 $query = 'SELECT name, ruta FROM Imagen WHERE id = :idImagen';
+		 $stmt = $db->prepare($query);
+		 $stmt->bindParam(':idImagen', $idImagen);
+		 $stmt->execute();
+		 $result = $stmt->fetch(PDO::FETCH_ASSOC);
+		 
+		 if (!$result) {
+			 echo '{"R":-4}';
+			 return;
+		 }
+		 
+		 $name = $result['name'];
+		 $ruta = $result['ruta'];
+		 
+	 } catch (Exception $e) {
+		 error_log("Error: " . $e->getMessage()); 
+		 echo '{"R":-4}';
+		 return;
+	 }
+	 
+	 // Descargar el archivo
+	 $web = \Web::instance();
+	 $info = pathinfo($ruta);
+	 $web->send($ruta, NULL, 0, TRUE, $name.'.'.$info['extension']);
+ }
 );
 
 
