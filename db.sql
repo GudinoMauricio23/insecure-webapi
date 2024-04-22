@@ -1,11 +1,8 @@
 /*
 ###-
-create database webapps;
-GRANT ALL PRIVILEGES ON webapps.* TO 'udbwebaps'@'localhost' IDENTIFIED BY 'ku>;k8ND4CN4';
-FLUSH PRIVILEGES
+FAVOR DE CONSULTAR EL MANUAL SI TIENE DUDAS
 */
 
-/*use webapps;*/
 
 create table if not exists Usuario(
 	id int AUTO_INCREMENT, 
