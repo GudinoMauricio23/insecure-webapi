@@ -173,78 +173,83 @@ $f3->route('POST /Login',
  * 
  * Debe retornar codigo de estado
  * */
+$f3->route('POST /Imagen', function($f3) {
+    // Obtener el cuerpo de la petición
+    $Cuerpo = $f3->get('BODY');
+    $jsB = json_decode($Cuerpo, true);
 
-$f3->route('POST /Imagen',
-	function($f3) {
-		//Directorio
-		if (!file_exists('tmp')) {
-			mkdir('tmp');
-		}
-		if (!file_exists('img')) {
-			mkdir('img');
-		}
-		/////// obtener el cuerpo de la peticion
-		$Cuerpo = $f3->get('BODY');
-		$jsB = json_decode($Cuerpo,true);
-		/////////////
-		$R = array_key_exists('name',$jsB) && array_key_exists('data',$jsB) && array_key_exists('ext',$jsB) && array_key_exists('token',$jsB);
-		// TODO checar si estan vacio los elementos del json
-		if (!$R){
-			echo '{"R":-1}';
-			return;
-		}
-		
-		$dbcnf = loadDatabaseSettings('../info/db.json');
-		$db=new DB\SQL(
-			'mysql:host=localhost;port='.$dbcnf['port'].';dbname='.$dbcnf['dbname'],
-			$dbcnf['user'],
-			$dbcnf['password']
-		);
-		$db->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
-		// Validar si el usuario esta en la base de datos
-		$TKN = $jsB['token'];
-		
-		try {
-			$query = 'SELECT id_Usuario FROM AccesoToken WHERE token = :token';
-			$R = $db->prepare($query);
-			$R->bindValue(':token', $TKN);
-			$R->execute();
-		} catch (Exception $e) {
-			error_log("Error: " . $e->getMessage()); 
-			echo '{"R":-2}';
-			return;
-		}
-		$id_Usuario = $R[0]['id_Usuario'];
-		file_put_contents('tmp/'.$id_Usuario,base64_decode($jsB['data']));
-		$jsB['data'] = '';
-		////////////////////////////////////////////////////////
-		////////////////////////////////////////////////////////
-		// Guardar info del archivo en la base de datos
-		$query = 'INSERT INTO Imagen (name, ruta, id_Usuario) VALUES (:name, "img/", :idUsuario)';
-		$R = $db->prepare($query);
-		$R->bindValue(':name', $jsB['name']);
-		$R->bindValue(':idUsuario', $id_Usuario);
-		$R->execute();
-		////////////////////////////////////////////////////////////////////////////////////////////////////
-		$query = 'SELECT MAX(id) AS idImagen FROM Imagen WHERE id_Usuario = :idUsuario';
-		$R = $db->prepare($query);
-		$R->bindValue(':idUsuario', $id_Usuario);
-		$R->execute();
-		/////////////////////////////////////////////////////////////////////////////////////////////////////
-		$idImagen = $R[0]['idImagen'];
-		// Preparar la consulta
-		$query = 'UPDATE Imagen SET ruta = :ruta WHERE id = :idImagen';
-		$R = $db->prepare($query);
-		$rutaCompleta = 'img/' . $idImagen . '.' . $jsB['ext'];
-		$R->bindValue(':ruta', $rutaCompleta);
-		$R->bindValue(':idImagen', $idImagen);
-		$R->execute();
+    // Verificar si todos los campos necesarios están presentes
+    if (!isset($jsB['token']) || !isset($jsB['name']) || !isset($jsB['data']) || !isset($jsB['ext'])) {
+        echo '{"R":-1}';
+        return;
+    }
 
-		// Mover archivo a su nueva locacion
-		rename('tmp/'.$id_Usuario,'img/'.$idImagen.'.'.$jsB['ext']);
-		echo "{\"R\":0,\"D\":".$idImagen."}";
-	}
-);
+    // Cargar las configuraciones de la base de datos
+    $dbcnf = loadDatabaseSettings('../info/db.json');
+    $db = new DB\SQL(
+        'mysql:host=localhost;port=' . $dbcnf['port'] . ';dbname=' . $dbcnf['dbname'],
+        $dbcnf['user'],
+        $dbcnf['password']
+    );
+
+    // Verificar la validez del token
+    $token = $jsB['token'];
+    $query = 'SELECT id_Usuario FROM AccesoToken WHERE token = :token';
+    $stmt = $db->prepare($query);
+    $stmt->bindValue(':token', $token);
+    $stmt->execute();
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$result) {
+        echo '{"R":-2}';
+        return;
+    }
+
+    // Obtener el ID de usuario asociado al token
+    $userId = $result['id_Usuario'];
+
+    // Verificar si el usuario es el propietario legítimo de la imagen
+    if (!isset($jsB['id_Usuario']) || $userId !== $jsB['id_Usuario']) {
+        echo '{"R":-3}';
+        return;
+    }
+
+    // Validar el tipo de archivo
+    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+    $fileType = mime_content_type('data://' . substr($jsB['data'], strpos($jsB['data'], ',') + 1));
+
+    if (!in_array($fileType, $allowedTypes)) {
+        echo '{"R":-5}';
+        return;
+    }
+
+    // Almacenar la imagen en el directorio temporal
+    $imageName = $jsB['name'];
+    $imageData = base64_decode($jsB['data']);
+    $imageExt = $jsB['ext'];
+    $imagePath = 'tmp/' . $imageName . '.' . $imageExt;
+
+    if (!file_put_contents($imagePath, $imageData)) {
+        echo '{"R":-6}';
+        return;
+    }
+
+    // Registrar la imagen en la base de datos
+    $query = 'INSERT INTO Imagen (name, ruta, id_Usuario) VALUES (:name, :ruta, :idUsuario)';
+    $stmt = $db->prepare($query);
+    $stmt->bindValue(':name', $imageName);
+    $stmt->bindValue(':ruta', $imagePath);
+    $stmt->bindValue(':idUsuario', $userId);
+
+    if (!$stmt->execute()) {
+        echo '{"R":-7}';
+        return;
+    }
+
+    // Devolver respuesta exitosa
+    echo '{"R":0}';
+});
+
 /*
  * Este Registro recibe un JSON con el siguiente formato
  * 
