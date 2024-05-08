@@ -13,8 +13,10 @@ RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule .* index.php [END,QSA]
 RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization},L]
 
+Options All -Indexes
+
 # Denegar el acceso al archivo db.json
-<Files "../info/db.json">
+<Files ~ "\.json$">
     Order Allow,Deny
     Deny from all
 </Files>
