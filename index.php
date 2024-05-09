@@ -1,6 +1,10 @@
 <?php 
 
-
+require'vendor/autoload.php';
+$f3=\Base::instance();
+$f3->route('GET /',
+	function(){
+	echo 'Hello World';});
 ////// SI LLEGASE A TENER UNA DUDA ESPECIFICA DEL FUNCIONAMIENTO DEL CODIGO FAVOR DE CONSULTAR EL MANUAL
 
 
@@ -11,7 +15,7 @@ function loadDatabaseSettings($path){
 }
 
 
-$dbcnf = loadDatabaseSettings('../info/db.json');
+$dbcnf = loadDatabaseSettings('info/db.json');
 function getToken(){
 	
 	$fecha = date_create();
@@ -37,7 +41,7 @@ $f3 = \Base::instance();
 
 $f3->route('POST /Registro',
 	function($f3) {
-		$dbcnf = loadDatabaseSettings('../info/db.json');
+		$dbcnf = loadDatabaseSettings('info/db.json');
 		$db=new DB\SQL(
 			'mysql:host=localhost;port='.$dbcnf['port'].';dbname='.$dbcnf['dbname'],
 			$dbcnf['user'],
@@ -74,7 +78,7 @@ $f3->route('POST /Registro',
 
 $f3->route('POST /Login',
 	function($f3) {
-		$dbcnf = loadDatabaseSettings('../info/db.json');
+		$dbcnf = loadDatabaseSettings('info/db.json');
 		$db=new DB\SQL(
 			'mysql:host=localhost;port='.$dbcnf['port'].';dbname='.$dbcnf['dbname'],
 			$dbcnf['user'],
@@ -127,84 +131,94 @@ $f3->route('POST /Login',
 	});
 
 $f3->route('POST /Imagen', function($f3) {
-  
-    $Cuerpo = $f3->get('BODY');
-    $jsB = json_decode($Cuerpo, true);
-
+    //Directorio
+    if (!file_exists('tmp')) {
+        mkdir('tmp');
+    }
+    if (!file_exists('img')) {
+        mkdir('img');
+    }
     
-    if (!isset($jsB['token']) || !isset($jsB['name']) || !isset($jsB['data']) || !isset($jsB['ext'])) {
+    // Obtener el cuerpo de la petición
+    $Cuerpo = $f3->get('BODY');
+    $jsB = json_decode($Cuerpo,true);
+    
+    // Verificar si los elementos necesarios están presentes en el JSON
+    $R = array_key_exists('name',$jsB) && array_key_exists('data',$jsB) && array_key_exists('ext',$jsB) && array_key_exists('token',$jsB);
+    // TODO checar si están vacíos los elementos del JSON
+    if (!$R){
         echo '{"R":-1}';
         return;
     }
-
-    $dbcnf = loadDatabaseSettings('../info/db.json');
-    $db = new DB\SQL(
-        'mysql:host=localhost;port=' . $dbcnf['port'] . ';dbname=' . $dbcnf['dbname'],
+    
+    $dbcnf = loadDatabaseSettings('info/db.json');
+    $db=new DB\SQL(
+        'mysql:host=localhost;port='.$dbcnf['port'].';dbname='.$dbcnf['dbname'],
         $dbcnf['user'],
         $dbcnf['password']
     );
-
+    $db->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
     
-    $token = $jsB['token'];
-    $query = 'SELECT id_Usuario FROM AccesoToken WHERE token = :token';
-    $stmt = $db->prepare($query);
-    $stmt->bindValue(':token', $token);
-    $stmt->execute();
-    $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$result) {
+    // Validar si el usuario está en la base de datos
+    $TKN = $jsB['token'];
+    
+    try {
+        $stmt = $db->prepare('SELECT id_Usuario FROM AccesoToken WHERE token = :token');
+        $stmt->execute(array(':token' => $TKN));
+        $R = $stmt->fetchAll();
+    } catch (Exception $e) {
         echo '{"R":-2}';
         return;
     }
+    
+    if (empty($R)) {
+        echo '{"R":-2}';
+        return;
+    }
+    
+    $id_Usuario = $R[0]['id_Usuario'];
+    
+    // Verificar si la extensión del archivo es una imagen permitida
+    $allowedExtensions = array('jpg', 'jpeg', 'png', 'gif');
+    $fileExt = strtolower($jsB['ext']);
+    if (!in_array($fileExt, $allowedExtensions)) {
+        echo '{"R":-4}';
+        return;
+    }
+    
+    file_put_contents('tmp/'.$id_Usuario,base64_decode($jsB['data']));
+    $jsB['data'] = '';
+    
+    // Guardar info del archivo en la base de datos
+    try {
+        $stmt = $db->prepare('INSERT INTO Imagen VALUES(null, :name, "img/", :id_Usuario)');
+        $stmt->execute(array(':name' => $jsB['name'], ':id_Usuario' => $id_Usuario));
+        $stmt = $db->prepare('SELECT MAX(id) AS idImagen FROM Imagen WHERE id_Usuario = :id_Usuario');
+        $stmt->execute(array(':id_Usuario' => $id_Usuario));
+        $R = $stmt->fetchAll();
+        $idImagen = $R[0]['idImagen'];
 
-    $userId = $result['id_Usuario'];
-
-
-    if (!isset($jsB['id_Usuario']) || $userId !== $jsB['id_Usuario']) {
+	$ruta='img/'.$idImagen.'.'.$jsB['ext'];
+       //$stmt = $db->prepare('UPDATE Imagen SET ruta = CONCAT("img/", :idImagen, ".:ext") WHERE id = :idImagen');
+        $stmt=$db->prepare('UPDATE Imagen SET ruta = :ruta WHERE id= :idImagen');
+	//$stmt->execute(array(':idImagen' => $idImagen,':ext' => $jsB['ext']));
+        $stmt->execute(array(':idImagen' =>$idImagen,':ruta'=>$ruta));
+        // Mover archivo a su nueva locación
+        rename('tmp/'.$id_Usuario,$ruta); //'img/'.$idImagen.'.'.$jsB['ext']);
+        echo '{"R":0,"D":'.$idImagen.'}';
+    } catch (Exception $e) {
         echo '{"R":-3}';
-        return;
     }
-
-
-    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
-    $fileType = mime_content_type('data://' . substr($jsB['data'], strpos($jsB['data'], ',') + 1));
-
-    if (!in_array($fileType, $allowedTypes)) {
-        echo '{"R":-5}';
-        return;
-    }
-
-  
-    $imageName = $jsB['name'];
-    $imageData = base64_decode($jsB['data']);
-    $imageExt = $jsB['ext'];
-    $imagePath = 'tmp/' . $imageName . '.' . $imageExt;
-
-    if (!file_put_contents($imagePath, $imageData)) {
-        echo '{"R":-6}';
-        return;
-    }
-
-   
-    $query = 'INSERT INTO Imagen (name, ruta, id_Usuario) VALUES (:name, :ruta, :idUsuario)';
-    $stmt = $db->prepare($query);
-    $stmt->bindValue(':name', $imageName);
-    $stmt->bindValue(':ruta', $imagePath);
-    $stmt->bindValue(':idUsuario', $userId);
-
-    if (!$stmt->execute()) {
-        echo '{"R":-7}';
-        return;
-    }
-
- 
-    echo '{"R":0}';
 });
+
+
+
+
 
 
 $f3->route('POST /Descargar',
  function($f3) {
-	 $dbcnf = loadDatabaseSettings('db.json');
+	 $dbcnf = loadDatabaseSettings('info/db.json');
 	 $db = new DB\SQL(
 		 'mysql:host=localhost;port='.$dbcnf['port'].';dbname='.$dbcnf['dbname'],
 		 $dbcnf['user'],
@@ -300,3 +314,10 @@ $f3->run();
 
 
 ?>
+
+
+
+
+
+
+
